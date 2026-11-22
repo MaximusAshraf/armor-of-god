@@ -1,0 +1,7 @@
+node_modules/
+.env
+.DS_Store
+*.log
+# generated on first run: TLS private key + LAN IPs, and the secret the printed QR codes derive from
+data/cert.json
+data/secret.txt

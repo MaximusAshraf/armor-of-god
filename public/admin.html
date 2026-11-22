@@ -1,0 +1,121 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Whole Weapon of God - Admin</title>
+<link rel="stylesheet" href="/style.css">
+<style>
+  .adm { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); gap: 14px; align-items: start; }
+  @media (max-width: 1000px) { .adm { grid-template-columns: 1fr; } }
+  .pteam { margin-bottom: 14px; } .pteam h3 { margin: 0 0 8px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .pgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 8px; }
+  .pl { display: flex; align-items: center; gap: 8px; background: #ffffff12; border-radius: 12px; padding: 6px 10px; border-inline-start: 5px solid var(--tc); }
+  .pl.off { opacity: .45; }
+  .pl .skip { background: #ffffff22; border-radius: 8px; padding: 4px 8px; flex: none; } .pl .skip:hover { background: var(--gold); color: #111; }
+  .pl .dot { width: 11px; height: 11px; border-radius: 50%; background: #22c55e; box-shadow: 0 0 8px #22c55e; flex: none; } .pl.off .dot { background: #777; box-shadow: none; }
+  .pl .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 700; }
+  .pl .lv { display: flex; align-items: center; gap: 5px; font-size: .8rem; flex: none; } .pl .lv .th { width: 34px; height: 34px; } .pl .lv .th svg { width: 100%; height: 100%; }
+  .pl .lv b { background: var(--tc); color: #111; border-radius: 999px; padding: 1px 7px; }
+</style>
+</head>
+<body>
+<div class="wrap" style="max-width:1500px">
+  <h1 id="h"></h1>
+  <div class="card" style="display:flex;gap:12px;flex-wrap:wrap;align-items:center">
+    <button class="btn" id="start"></button>
+    <button class="btn danger" id="reset"></button>
+    <a class="btn ghost" href="/qrs" target="_blank" id="qrs" style="text-decoration:none"></a>
+    <a class="btn ghost" href="/screen" target="_blank" id="scr" style="text-decoration:none"></a>
+    <a class="btn ghost" href="/demo" target="_blank" id="demo" style="text-decoration:none"></a>
+    <button class="btn ghost" onclick="toggleLang()">ع / EN</button>
+    <span id="status" style="margin-inline-start:auto;font-weight:800"></span>
+  </div>
+  <div class="card" style="margin-top:14px;display:flex;gap:28px;flex-wrap:wrap;align-items:center">
+    <div><b id="lblTeams"></b>
+      <button class="btn ghost" id="tm" style="font-size:1.3rem">−</button><b id="tc" style="font-size:1.5rem;margin:0 10px">2</b><button class="btn ghost" id="tp" style="font-size:1.3rem">+</button>
+      <div class="sm" id="tnote"></div></div>
+    <div style="flex:1;min-width:240px"><b id="lblPct"></b> <b id="pctv" style="color:var(--gold)"></b><input type="range" id="pct" min="0" max="100" step="10" style="padding:0;border:0"></div>
+  </div>
+  <div class="adm" style="margin-top:14px">
+  <div>
+  <div class="card"><table><thead><tr><th id="th0"></th><th>👥</th><th id="th2"></th><th id="th3"></th><th></th></tr></thead><tbody id="rows"></tbody></table></div>
+  <div class="card" style="margin-top:14px;display:flex;gap:16px;align-items:center;flex-wrap:wrap"><div class="joinqr" id="qr"></div><div><div class="title-md">📱 <span id="qrl"></span></div><div class="sm" dir="ltr" id="joinurl"></div></div></div>
+  </div>
+  <div class="card"><div class="title-md" style="margin-top:0">👥 <span id="plt"></span> <span class="sm" id="plc"></span></div><div id="players"></div></div>
+  </div>
+</div>
+<script src="/socket.io/socket.io.js"></script>
+<script src="/monsters/rig.js"></script>
+<script src="/common.js"></script>
+<script src="/mwarp.js"></script>
+<script>
+const $ = (id) => document.getElementById(id);
+let CFG, B;
+$('h').textContent = '🛡️ ' + t('title') + ' — Admin';
+$('start').textContent = '▶ ' + t('start'); $('reset').textContent = '↺ ' + t('reset'); $('qrs').textContent = '🖨 ' + t('printQr'); $('scr').textContent = '📺 ' + t('openScreen');
+$('demo').textContent = '🎲 ' + t('openDemo'); $('lblTeams').textContent = t('teamCount'); $('lblPct').textContent = t('gatherPct');
+$('tm').onclick = () => post('/api/admin/settings', { teamCount: B.settings.teamCount - 1 });
+$('tp').onclick = () => post('/api/admin/settings', { teamCount: B.settings.teamCount + 1 });
+$('pct').oninput = () => { $('pctv').textContent = $('pct').value + '%'; post('/api/admin/settings', { gatherPercent: Number($('pct').value) }); };
+$('plt').textContent = t('playersList');
+$('th0').textContent = t('team_'); $('th2').textContent = t('progress'); $('th3').textContent = t('state'); $('qrl').textContent = t('scanToJoin');
+const post = (url, body) => fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body || {}) });
+$('start').onclick = () => post('/api/admin/start');
+$('reset').onclick = () => { if (confirm(t('confirmReset'))) post('/api/admin/reset'); };
+// the boards re-render many times a second, so listen on the containers (pointerdown) instead of per-button onclick:
+// a button that gets replaced between press and release would otherwise swallow the click
+document.addEventListener('pointerdown', (e) => {
+  const b = e.target.closest('[data-player],[data-team]'); if (!b) return;
+  post('/api/admin/skip', b.dataset.player !== undefined ? { player: Number(b.dataset.player) } : { team: Number(b.dataset.team) });
+  b.style.transform = 'scale(.9)';
+});
+
+function render() {
+  if (!B || !CFG) return;
+  $('status').textContent = B.status === 'running' ? '⚔️ ' + t('running') : '⏳ ' + t('waitingStart');
+  const st = B.settings, running = B.status === 'running';
+  $('tc').textContent = st.teamCount;
+  $('tm').disabled = running || st.teamCount <= 2; $('tp').disabled = st.teamCount >= st.maxTeams;
+  $('tnote').textContent = running ? t('onlyRunning') : '';
+  if (document.activeElement !== $('pct')) $('pct').value = st.gatherPercent;
+  $('pctv').textContent = st.gatherPercent + '%';
+  $('start').disabled = B.status === 'running'; $('start').style.opacity = B.status === 'running' ? .4 : 1;
+  renderPlayers();
+  const rowsHtml = B.teams.map((tm) => {
+    let s = tm.phase === 'done' ? '🏆 ' + t('finished') : tm.phase === 'tool' ? `${tm.want.idx < tm.stage ? '🔁' : '🔎'} ${esc(L(CFG.tools[tm.want.idx]))}` : tm.phase === 'monster' ? `👁 ${esc(L(CFG.monsters[tm.want.idx]))}` : `⚔️ ${esc(L(CFG.monsters[tm.stage]))} (${tm.active}/${tm.need})`;
+    const pct = tm.phase === 'fight' && tm.maxHp ? tm.hp / tm.maxHp * 100 : 0;
+    return `<tr><td><span class="pill" style="--c:${tm.color}">${esc(L(tm.name))}</span></td><td>${tm.online}/${tm.total}</td>
+      <td>🛡️ ${tm.found}/6 · ✓ ${tm.defeated}/6</td><td>${s}${pct ? `<div class="bar"><i style="width:${pct}%"></i></div>` : ''}</td>
+      <td>${tm.phase === 'done' ? '' : `<button class="btn ghost" title="${t('skipHint')}" data-team="${tm.id}">⏭ ${t('skip')}</button>`}</td></tr>`;
+  }).join('');
+  if (rowsHtml !== lastRowsHtml) { lastRowsHtml = rowsHtml; $('rows').innerHTML = rowsHtml; }
+}
+// every player with online/offline and the level (+ small picture) their team is at right now
+function renderPlayers() {
+  const all = B.teams.reduce((n, tm) => n + tm.total, 0), on = B.teams.reduce((n, tm) => n + tm.online, 0);
+  $('plc').textContent = `${on}/${all} ${t('online')}`;
+  const html = B.teams.map((tm) => {
+    let img, lvl;
+    if (B.status !== 'running') { img = ''; lvl = '—'; }
+    else if (tm.phase === 'done') { img = '🏆'; lvl = '✓'; }
+    else if (tm.phase === 'fight') { img = Art.monster(tm.stage); lvl = tm.stage + 1; }
+    else { img = tm.want.kind === 'tool' ? Art.tool(tm.want.idx) : Art.monster(tm.want.idx); lvl = tm.want.idx + 1; }
+    const members = [...tm.members].sort((a, b) => b.online - a.online);
+    return `<div class="pteam" style="--tc:${tm.color}"><h3><span class="pill" style="--c:${tm.color}">${esc(L(tm.name))}</span><span class="sm">${tm.online}/${tm.total} ${t('online')}</span></h3>
+      <div class="pgrid">${members.map((m) => `<div class="pl ${m.online ? '' : 'off'}" title="${m.online ? t('online') : t('offline_')}"><i class="dot"></i><span class="nm">${esc(m.name)}</span>
+        <span class="lv"><span class="th">${img}</span>${lvl !== '—' ? `<b>${lvl}</b>` : ''}</span>${B.status === 'running' && tm.phase !== 'done' && m.online ? `<button class="skip" title="${t('skipHint')}" data-player="${m.uid}">⏭</button>` : ''}</div>`).join('') || `<span class="sm">—</span>`}</div></div>`;
+  }).join('');
+  if (html !== lastPlayersHtml) { lastPlayersHtml = html; $('players').innerHTML = html; }
+}
+let lastPlayersHtml = '', lastRowsHtml = '';
+(async () => {
+  CFG = await (await fetch('/api/config')).json();
+  const share = await (await fetch('/api/share')).json();
+  if (share[0]) { $('qr').innerHTML = share[0].svg; $('joinurl').textContent = share[0].join; zoomable($('qr'), share[0].join); }
+  const socket = io({ auth: { role: 'admin' } });
+  socket.on('board', (b) => { B = b; render(); });
+})();
+</script>
+</body>
+</html>

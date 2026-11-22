@@ -1,0 +1,22 @@
+{
+  "name": "armor-of-god",
+  "version": "1.0.0",
+  "description": "Whole Weapon of God - a team treasure-hunt and monster-battle game for phones on a local network",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node test/smoke.js"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "express": "^5.3.0",
+    "jsqr": "^1.4.0",
+    "qrcode": "^1.5.4",
+    "qrcode-terminal": "^0.12.0",
+    "selfsigned": "^5.5.0",
+    "socket.io": "^4.8.4"
+  },
+  "devDependencies": {
+    "socket.io-client": "^4.8.4"
+  }
+}

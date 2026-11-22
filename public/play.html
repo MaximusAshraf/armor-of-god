@@ -1,0 +1,316 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<title>Whole Weapon of God</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<div class="conn" id="conn"></div>
+<div class="top"><div class="chip"><i></i><span id="tname"></span></div><button class="btn ghost" id="mute"></button><button class="btn ghost" onclick="toggleLang()">ع / EN</button></div>
+<div class="armor" id="armor"></div>
+<div id="stage"></div>
+<div id="ovbox"></div>
+<div id="flash"></div>
+<div id="toast"></div>
+<script src="/socket.io/socket.io.js"></script>
+<script src="/jsqr.js"></script>
+<script src="/monsters/rig.js"></script>
+<script src="/common.js"></script>
+<script src="/mwarp.js"></script>
+<script>
+const $ = (id) => document.getElementById(id);
+const store = { get: (k) => { try { return localStorage.getItem(k); } catch { return null; } }, rm: (k) => { try { localStorage.removeItem(k); } catch {} } };
+const pid = store.get('aog_pid');
+const params = new URLSearchParams(location.search);
+if (!pid) location.replace('/?next=' + encodeURIComponent(location.pathname + location.search));
+
+let CFG = null, S = null, viewKey = '', overlayOpen = false, pendingScan = params.get('scan');
+
+// ------------------------------------------------ light + tilt: the artwork shifts a little with your finger or phone angle
+const setLight = (x, y) => { const r = document.documentElement.style; r.setProperty('--lx', x.toFixed(1)); r.setProperty('--ly', y.toFixed(1)); };
+addEventListener('pointermove', (e) => setLight((e.clientX / innerWidth - .5) * 100, (e.clientY / innerHeight - .5) * 100), { passive: true });
+addEventListener('deviceorientation', (e) => { if (e.gamma != null) setLight(Math.max(-50, Math.min(50, e.gamma * 1.2)), Math.max(-50, Math.min(50, ((e.beta || 0) - 45)))); }, { passive: true });
+
+// ------------------------------------------------ small helpers
+let toastTimer;
+function toast(msg, ms = 2800) { const el = $('toast'); el.textContent = msg; el.classList.add('on'); clearTimeout(toastTimer); toastTimer = setTimeout(() => el.classList.remove('on'), ms); }
+const vibrate = (p) => { try { navigator.vibrate && navigator.vibrate(p); } catch {} };
+function pop(x, y, txt) { const e = document.createElement('div'); e.className = 'pop'; e.textContent = txt; e.style.left = x + 'px'; e.style.top = y + 'px'; document.body.appendChild(e); setTimeout(() => e.remove(), 850); }
+function sparks(host, n = 26, colors = ['#ffd34f', '#fff', '#ff9a3b', '#7cf']) {
+  for (let i = 0; i < n; i++) {
+    const s = document.createElement('i'); s.className = 'spark';
+    const a = Math.random() * Math.PI * 2, d = 90 + Math.random() * 190;
+    s.style.cssText = `left:50%;top:42%;--dx:${Math.cos(a) * d}px;--dy:${Math.sin(a) * d}px;--c:${colors[i % colors.length]};animation-delay:${Math.random() * .2}s`;
+    host.appendChild(s);
+  }
+}
+function confetti() {
+  const cols = ['#ffd34f', '#ef4444', '#3b82f6', '#22c55e', '#a855f7', '#fff'];
+  for (let i = 0; i < 70; i++) {
+    const c = document.createElement('i'); c.className = 'confetti';
+    c.style.cssText = `left:${Math.random() * 100}vw;background:${cols[i % cols.length]};animation-duration:${2.5 + Math.random() * 2.5}s;animation-delay:${Math.random() * 1.2}s`;
+    document.body.appendChild(c); setTimeout(() => c.remove(), 7000);
+  }
+}
+
+// ------------------------------------------------ socket
+let socket;
+async function boot() {
+  CFG = await (await fetch('/api/config')).json();
+  $('mute').textContent = Sfx.muted ? '🔇' : '🔊';
+  $('mute').onclick = () => { $('mute').textContent = Sfx.toggle() ? '🔇' : '🔊'; };
+  $('conn').textContent = t('connecting'); $('conn').style.display = 'block';
+  socket = io({ auth: { pid } });
+  socket.on('connect', () => {
+    $('conn').style.display = 'none';
+    if (pendingScan) history.replaceState(null, '', '/play'); // opened by the phone's own camera app: the item shows once the screen is ready
+  });
+  socket.on('disconnect', () => { $('conn').textContent = t('offline'); $('conn').style.display = 'block'; });
+  socket.on('unknown', () => { store.rm('aog_pid'); toast(t('unknown'), 2000); setTimeout(() => location.replace('/?next=/play'), 900); });
+  socket.on('state', (s) => { S = s; render(); });
+  socket.on('reset', () => { closeOverlay(); viewKey = ''; });
+  socket.on('start', () => { Sfx.found(); vibrate([60, 40, 60]); toast(t('fight')); });
+  socket.on('ev', onEvent);
+}
+
+// step 1: a scanned QR only makes the item appear (see-through) over the camera
+function doScan(code) {
+  socket.emit('scan', code, (r) => {
+    if (r.result === 'item') return showItem(r, code);
+    Sfx.error(); vibrate(200);
+    toast(t(r.result));
+  });
+}
+
+// step 2: tapping the item uses it (collect / summon / trap) - the server decides if that is allowed right now
+function doTake(code) {
+  socket.emit('take', code, (r) => {
+    if (r.result === 'ok' || r.result === 'trap') return; // the team events show the celebration / the trap
+    if (r.result === 'gathering') { Sfx.appear(); vibrate(40); return toast(t('gatheringReg', { have: r.have, need: r.need }), 4500); }
+    clearItem();
+    if (r.result === 'trap_empty') { Sfx.lose(); vibrate([200, 80, 200]); return toast(t('trap_empty'), 3500); }
+    Sfx.error(); vibrate(200);
+    toast(t(r.result, { n: r.level }), 3500);
+  });
+}
+
+let itemTimer = null, itemCode = null;
+function clearItem() { clearTimeout(itemTimer); itemCode = null; const b = $('itemLayer'); if (b) b.innerHTML = ''; }
+function showItem(r, code) {
+  const box = $('itemLayer'); if (!box) return;
+  const def = r.kind === 'tool' ? CFG.tools[r.idx] : r.kind === 'monster' ? CFG.monsters[r.idx] : CFG.traps[r.idx];
+  const label = r.kind === 'tool' ? t('tapTool') : r.kind === 'monster' ? t('tapMonster') : t('tapItem');
+  const badge = r.level && !r.inOrder ? `<div class="lvl">${t('level')} ${r.level}</div>` : ''; // out of order: show which level it belongs to
+  box.innerHTML = `<div class="item" id="itemBtn"><div class="item-art">${Art[r.kind](r.idx)}</div>${badge}<div class="item-name">${esc(L(def))}</div><div class="item-tap">👆 ${label}</div></div>`;
+  $('itemBtn').addEventListener('pointerdown', (e) => { e.stopPropagation(); Sfx.init(); doTake(code); });
+  Sfx.appear(); vibrate(30);
+  itemCode = code; clearTimeout(itemTimer); itemTimer = setTimeout(clearItem, 12000);
+}
+
+function onEvent(e) {
+  if (e.type === 'attack') return attack();
+  if (e.type === 'found') return showFound(e);
+  if (e.type === 'lost') return showLost(e);
+  if (e.type === 'summon') return showSummon(e);
+  if (e.type === 'defeated') return showDefeated(e);
+  if (e.type === 'done') return showDone(e);
+}
+
+// ------------------------------------------------ rendering
+function renderTop() {
+  const tm = S.team;
+  document.documentElement.style.setProperty('--team', tm.color);
+  $('tname').textContent = L(tm.name);
+  $('armor').innerHTML = CFG.tools.map((_, i) => {
+    const cls = ['slot'];
+    if (i < tm.tools) cls.push('found');
+    if (i < tm.defeated) cls.push('defeated');
+    if (tm.want && i === tm.want.idx) cls.push('current');
+    return `<div class="${cls.join(' ')}">${Art.tool(i)}</div>`;
+  }).join('');
+}
+
+function render() {
+  if (!S || !CFG) return;
+  renderTop();
+  const tm = S.team;
+  const key = S.status !== 'running' ? 'lobby' : tm.phase === 'done' ? 'done' : tm.phase === 'fight' ? `fight:${tm.stage}` : `${tm.want.kind}:${tm.want.idx}`;
+  if (key !== viewKey) { viewKey = key; buildView(key); }
+  updateView();
+  if (pendingScan) { const c = pendingScan; pendingScan = null; doScan(c); }
+}
+
+function buildView(key) {
+  const tm = S.team, st = $('stage');
+  stopCam();
+  if (key === 'lobby') {
+    st.innerHTML = `<div class="center"><div class="sm">${t('team')}</div><div class="title-md" style="color:var(--team);font-size:2rem">${esc(L(tm.name))}</div>
+      <div class="toolbox"><div class="light"></div><div class="parallax">${Art.tool(3, 'float-anim')}</div></div>
+      <p class="title-md">${t('waitStart')}</p><p class="sm">${t('waitHint')}</p><div class="sm" style="margin-top:14px">${t('members')}</div><div class="members" id="mem"></div></div>`;
+  } else if (key.startsWith('tool') || key.startsWith('monster')) {
+    const isTool = key.startsWith('tool'), idx = tm.want.idx, item = isTool ? CFG.tools[idx] : CFG.monsters[idx], clue = L(item.hint), again = isTool && idx < tm.stage;
+    st.innerHTML = `<div class="center"><div class="sm">${again ? '🔁 ' + t('recollect') + ' — ' : ''}${isTool ? t('seekTool') : t('seekMonster')}</div><div class="title-md">${esc(L(item))}</div>
+      ${isTool ? '' : '<div class="gather" id="gather"></div>'}
+      <div class="viewfinder"><video id="cam" playsinline muted autoplay></video><canvas id="camc" hidden></canvas><div class="frame"></div><div class="scanline"></div>
+        <div class="vf-badge sil">${isTool ? Art.tool(idx) : Art.monster(idx)}</div><div class="item-layer" id="itemLayer"></div>
+        <button class="btn" id="camBtn" hidden>📷 ${t('camStart')}</button><div class="camerr" id="camerr"></div></div>
+      <div class="hint">📷 ${t('seekHint')}</div>${clue ? `<div class="hint">💡 ${t('clue')}: ${esc(clue)}</div>` : ''}
+      <div class="sm">${t('orType')}</div>
+      <div class="codebox"><input id="code" maxlength="6" placeholder="${t('codePh')}" autocomplete="off" autocapitalize="characters"><button class="btn" id="send">${t('send')}</button></div></div>`;
+    const send = () => { const v = $('code').value.trim(); if (v) { Sfx.init(); doScan(v); $('code').value = ''; } };
+    $('send').onclick = send; $('code').addEventListener('keydown', (e) => { if (e.key === 'Enter') send(); });
+    $('camBtn').onclick = startCam;
+    startCam();
+  } else if (key.startsWith('fight')) {
+    const m = CFG.monsters[tm.stage];
+    st.innerHTML = `<div class="arena" id="arena"><div class="center"><div class="title-md">${esc(L(m))}</div><div class="sm">${esc(L(m.tag))}</div></div>
+      <div class="monsterbox" id="mbox">${Art.monster(tm.stage)}</div>
+      <div class="hpbar"><div id="hp"></div></div><div class="quorum center" id="quorum"></div>
+      <div class="center"><div class="status" id="fstatus"></div><div class="tapme">👆 ${t('fightHint')}</div></div><div class="members" id="mem"></div></div>`;
+    $('arena').addEventListener('pointerdown', onTap);
+  } else if (key === 'done') {
+    const secs = tm.finishedAt && S.startedAt ? tm.finishedAt - S.startedAt : 0, place = S.rank.indexOf(tm.id) + 1;
+    st.innerHTML = `<div class="center"><div class="title-md" style="color:var(--gold);font-size:2rem">${t('victory')}</div><p class="sm">${t('victorySub')}</p>
+      <div class="members" style="gap:10px">${CFG.tools.map((_, i) => `<div style="width:80px">${Art.tool(i)}</div>`).join('')}</div>
+      <p class="title-md">🏆 ${t('place')} ${place}</p><p class="title-md">⏱ ${fmtTime(secs)}</p></div>`;
+  }
+}
+
+function updateView() {
+  const tm = S.team, mem = $('mem');
+  if (mem) mem.innerHTML = tm.members.map((m) => `<span class="mem ${m.online ? 'on' : ''} ${m.active ? 'act' : ''}"><i></i>${esc(m.name)}</span>`).join('');
+  const g = $('gather');
+  if (g && tm.gather) g.innerHTML = tm.gather.need ? `👥 <b>${t('gatherTitle')}</b>: ${t('gatherCount', { have: tm.gather.have, need: tm.gather.need })}<div class="sm">${t('gatherHelp')}</div>` : `<div class="sm">${t('gatherNone')}</div>`;
+  if (viewKey.startsWith('fight')) {
+    $('hp').style.width = (tm.maxHp ? Math.max(0, tm.hp / tm.maxHp * 100) : 0) + '%';
+    $('quorum').innerHTML = Array.from({ length: tm.need }, (_, i) => `<i class="${i < tm.active ? 'on' : ''}">${i < tm.active ? '⚔️' : ''}</i>`).join('');
+    const ok = tm.active >= tm.need, el = $('fstatus');
+    el.className = 'status ' + (ok ? 'good' : 'bad');
+    el.textContent = ok ? `${t('quorumOk')} (${tm.active}/${tm.need})` : `${t('needTogether', { n: tm.need })} (${tm.active}/${tm.need})` + (tm.hp < tm.maxHp ? ` — ${t('healing')}` : '');
+  }
+}
+
+function onTap(e) {
+  if (!S || S.team.phase !== 'fight') return;
+  socket.emit('tap');
+  Sfx.tap(); vibrate(8);
+  const ok = S.team.active >= S.team.need, box = $('mbox');
+  pop(e.clientX, e.clientY, ok ? '⚔️' : '🛡️');
+  if (ok) { Sfx.hit(); box.classList.remove('hitflash', 'recoil'); void box.offsetWidth; box.classList.add('hitflash', 'recoil'); } else Sfx.blocked();
+}
+
+function attack() {
+  if (!viewKey.startsWith('fight') || overlayOpen) return;
+  Sfx.attack(); vibrate([120, 60, 160]);
+  const f = $('flash'); f.classList.remove('on'); void f.offsetWidth; f.classList.add('on');
+  const st = $('stage'); st.classList.remove('shake'); void st.offsetWidth; st.classList.add('shake');
+  const mb = $('mbox'); if (mb) { mb.style.transition = 'transform .25s'; mb.style.transform = 'scale(1.25) translateY(18px)'; setTimeout(() => { mb.style.transform = ''; }, 260); }
+  const rg = mb && mb.querySelector('.mrig'); if (rg) { rg.classList.add('attack'); setTimeout(() => rg.classList.remove('attack'), 900); } // mouth opens / lunge
+  toast('💥 ' + t('attack'), 1200);
+}
+
+// ------------------------------------------------ in-page QR scanner (live camera, decoded on the phone)
+let stream = null, scanTimer = null, lastCode = '', lastAt = 0, detector = null, bdBroken = false;
+function stopCam() { clearTimeout(scanTimer); scanTimer = null; if (stream) { stream.getTracks().forEach((x) => x.stop()); stream = null; } }
+async function startCam() {
+  stopCam();
+  const v = $('cam'); if (!v) return;
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { $('camerr').textContent = t(window.isSecureContext ? 'camErr' : 'camInsecure'); return; }
+  try {
+    const s = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 } }, audio: false });
+    if (!$('cam')) { s.getTracks().forEach((x) => x.stop()); return; } // the screen changed while the permission prompt was open
+    stream = s; v.srcObject = s; await v.play();
+    $('camBtn').hidden = true; $('camerr').textContent = '';
+    scanLoop();
+  } catch { const e = $('camerr'); if (e) { e.textContent = t('camErr'); $('camBtn').hidden = false; } }
+}
+const parseCode = (raw) => { try { return new URL(raw).pathname.split('/').filter(Boolean).pop() || raw; } catch { return String(raw).trim(); } };
+async function scanLoop() {
+  const v = $('cam'); if (!v || !stream) return;
+  let raw = null;
+  try {
+    if ('BarcodeDetector' in window && !bdBroken) {
+      detector = detector || new BarcodeDetector({ formats: ['qr_code'] });
+      const r = await detector.detect(v); if (r[0]) raw = r[0].rawValue;
+    } else if (window.jsQR && v.videoWidth) {
+      const c = $('camc'), w = Math.min(640, v.videoWidth), h = Math.round(v.videoHeight * w / v.videoWidth);
+      c.width = w; c.height = h;
+      const x = c.getContext('2d', { willReadFrequently: true }); x.drawImage(v, 0, 0, w, h);
+      const q = jsQR(x.getImageData(0, 0, w, h).data, w, h); if (q) raw = q.data;
+    }
+  } catch { bdBroken = true; }
+  if (raw && !overlayOpen) {
+    const code = parseCode(raw), now = Date.now();
+    if (code === itemCode) { clearTimeout(itemTimer); itemTimer = setTimeout(clearItem, 12000); } // still looking at the same item
+    else if (code !== lastCode || now - lastAt > 3000) { lastCode = code; lastAt = now; doScan(code); }
+  }
+  scanTimer = setTimeout(scanLoop, 160);
+}
+
+// ------------------------------------------------ overlays
+function openOverlay(html) { overlayOpen = true; $('ovbox').innerHTML = `<div class="ov">${html}</div>`; return $('ovbox').firstChild; }
+function closeOverlay() { overlayOpen = false; $('ovbox').innerHTML = ''; }
+
+function showLost(e) {
+  const tool = CFG.tools[e.tool], trap = CFG.traps[e.trap];
+  Sfx.lose(); vibrate([200, 100, 200, 100, 300]);
+  const f = $('flash'); f.classList.remove('on'); void f.offsetWidth; f.classList.add('on');
+  const ov = openOverlay(`<div class="rays" style="filter:hue-rotate(-70deg) saturate(1.5)"></div><div class="inner"><div class="title-md" style="color:#ff8b8b;font-size:2rem">☠️ ${t('trapTitle')}</div>
+    <div class="trapfall" style="width:38vw;max-width:140px;margin:6px auto">${Art.trap(e.trap)}</div><div class="sm">${esc(L(trap))} — ${esc(L(trap.lesson))}</div>
+    <div class="title-md" style="margin-top:10px">${t('trapLost')}: ${esc(L(tool))}</div><div class="loseart" style="width:42vw;max-width:160px;margin:0 auto">${Art.tool(e.tool)}</div>
+    <p style="line-height:1.7">${t('trapGo')}</p>${e.by ? `<div class="sm">${esc(e.by)}</div>` : ''}<button class="btn" id="ovbtn" style="margin-top:8px">${t('cont')}</button></div>`);
+  sparks(ov, 24, ['#ff6b6b', '#555', '#a855f7']);
+  $('ovbtn').onclick = closeOverlay;
+}
+
+function showFound(e) {
+  const tool = CFG.tools[e.tool];
+  Sfx.found(); vibrate([40, 30, 40, 30, 120]);
+  const ov = openOverlay(`<div class="rays"></div><div class="inner"><div class="title-md" style="color:var(--gold);font-size:2rem">✨ ${t('found')} ✨</div>
+    <div class="fly parallax">${Art.tool(e.tool)}</div><div class="title-md">${esc(L(tool))}</div>
+    <div class="verse">${esc(L(tool.verse))}<b>${esc(L(tool.ref))}</b></div>
+    ${e.by ? `<div class="sm">${t('foundBy')}: ${esc(e.by)}</div>` : ''}
+    <p class="title-md" style="color:#ff9a9a">⚠️ ${t('monsterAppears')}</p>
+    <button class="btn" id="ovbtn" style="margin-top:12px">${t('cont')}</button></div>`);
+  setTimeout(() => sparks(ov, 36), 700);
+  $('ovbtn').onclick = () => { Sfx.init(); closeOverlay(); };
+}
+
+function showSummon(e) {
+  const m = CFG.monsters[e.monster];
+  Sfx.attack(); vibrate([150, 60, 150, 60, 250]);
+  const ov = openOverlay(`<div class="rays" style="filter:hue-rotate(-40deg)"></div><div class="inner"><div class="title-md" style="color:#ff9a9a;font-size:2rem">💀 ${t('summoned')}</div>
+    <div class="rise" style="width:70vw;max-width:290px;margin:6px auto">${Art.monster(e.monster)}</div>
+    <div class="title-md">${esc(L(m))}</div><div class="sm">${esc(L(m.tag))}</div>
+    ${e.by ? `<div class="sm">${t('foundBy')}: ${esc(e.by)}</div>` : ''}
+    <button class="btn danger" id="ovbtn" style="margin-top:14px">⚔️ ${t('fight')}</button></div>`);
+  sparks(ov, 30, ['#ff6b6b', '#ff9a3b', '#a855f7']);
+  $('ovbtn').onclick = () => { Sfx.init(); closeOverlay(); setTimeout(attack, 700); };
+}
+
+function showDefeated(e) {
+  const m = CFG.monsters[e.monster];
+  Sfx.defeat(); vibrate([80, 40, 80, 40, 200]);
+  const ov = openOverlay(`<div class="rays"></div><div class="inner"><div style="width:62vw;max-width:240px;margin:0 auto" class="boom">${Art.monster(e.monster)}</div>
+    <div class="title-md" style="color:#86efac;font-size:2rem;margin-top:10px">🎉 ${t('defeated')}</div><div class="sm">${esc(L(m))}</div>
+    <p class="title-md">${t('nextTool')} 🔎</p><button class="btn" id="ovbtn">${t('cont')}</button></div>`);
+  sparks(ov, 40, ['#86efac', '#ffd34f', '#fff']); confetti();
+  $('ovbtn').onclick = closeOverlay;
+}
+
+function showDone() {
+  Sfx.win(); vibrate([100, 50, 100, 50, 100, 50, 300]); confetti(); setTimeout(confetti, 1800);
+  const ov = openOverlay(`<div class="rays"></div><div class="inner"><div class="title-md" style="color:var(--gold);font-size:2.2rem">🏆 ${t('victory')} 🏆</div>
+    <div class="members" style="gap:8px;margin:16px 0">${CFG.tools.map((_, i) => `<div style="width:84px" class="fly" >${Art.tool(i)}</div>`).join('')}</div>
+    <p class="sm">${t('victorySub')}</p><p class="verse">${esc(LANG === 'ar' ? 'لِكَيْ تَقْدِرُوا أَنْ تَثْبُتُوا ضِدَّ مَكَايِدِ إِبْلِيسَ' : 'that ye may be able to stand against the wiles of the devil')}<b>${LANG === 'ar' ? 'أفسس ٦: ١١' : 'Ephesians 6:11'}</b></p>
+    <button class="btn" id="ovbtn">${t('cont')}</button></div>`);
+  sparks(ov, 50);
+  $('ovbtn').onclick = closeOverlay;
+}
+
+boot();
+</script>
+</body>
+</html>

@@ -1,0 +1,76 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Whole Weapon of God - Screen</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<div class="screen">
+  <header>
+    <div><h1 id="h"></h1><div class="sm" id="status" style="font-size:1.2rem"></div></div>
+    <div class="clock" id="clock">00:00</div>
+    <div class="center"><div class="joinqr" id="qr"></div><div class="sm">📱 <span id="qrl"></span></div></div>
+    <button class="btn ghost" onclick="toggleLang()">ع / EN</button>
+  </header>
+  <div class="lanes" id="lanes"></div>
+  <div class="ticker" id="ticker"></div>
+</div>
+<script src="/socket.io/socket.io.js"></script>
+<script src="/monsters/rig.js"></script>
+<script src="/common.js"></script>
+<script src="/mwarp.js"></script>
+<script>
+const $ = (id) => document.getElementById(id);
+let CFG, B = null, offset = 0;
+$('h').textContent = '🛡️ ' + t('title'); $('qrl').textContent = t('scanToJoin');
+const medals = ['🥇', '🥈', '🥉'];
+
+function laneHtml(tm, pos) {
+  const slots = CFG.tools.map((_, i) => `<div class="slot ${i < tm.found ? 'found' : ''} ${i < tm.defeated ? 'defeated' : ''} ${tm.want && i === tm.want.idx ? 'current' : ''}">${Art.tool(i)}</div>`).join('');
+  let line = '';
+  if (tm.phase === 'done') line = `🏆 ${t('finished')} ⏱ ${fmtTime(tm.finishedAt - B.startedAt)}`;
+  else if (B.status !== 'running') line = t('waitingStart');
+  else if (tm.phase === 'tool') line = `${tm.want.idx < tm.stage ? '🔁' : '🔎'} ${t('searching')} <b>${esc(L(CFG.tools[tm.want.idx]))}</b>`;
+  else if (tm.phase === 'monster') line = `👁 ${t('searchingMonster')} <b>${esc(L(CFG.monsters[tm.want.idx]))}</b>${tm.gather && tm.gather.need ? ` &nbsp; 👥 ${tm.gather.have}/${tm.gather.need}` : ''}`;
+  else {
+    const m = CFG.monsters[tm.stage], pct = tm.maxHp ? Math.max(0, tm.hp / tm.maxHp * 100) : 0;
+    line = `<div class="mini"><div class="ms">${Art.monster(tm.stage)}</div><div style="flex:1">⚔️ ${t('fighting')} <b>${esc(L(m))}</b>
+      <div class="hpbar"><div style="width:${pct}%"></div></div>👆 ${tm.active}/${tm.need} ${t('tappingNow')}</div></div>`;
+  }
+  return `<div class="lane ${tm.phase === 'done' ? 'done' : ''}" style="--tc:${tm.color};order:${pos}"><h2><span>${esc(L(tm.name))}</span><span class="rankbadge">${medals[pos] || pos + 1}</span></h2>
+    <div class="sm">${tm.online}/${tm.total} ${t('online')}</div><div class="armor">${slots}</div><div class="line">${line}</div></div>`;
+}
+
+function render() {
+  if (!B || !CFG) return;
+  $('status').textContent = B.status === 'running' ? '⚔️ ' + t('running') : '⏳ ' + t('waitingStart');
+  $('lanes').innerHTML = B.teams.map((tm) => laneHtml(tm, B.rank.indexOf(tm.id))).join('');
+}
+
+const feedMsg = (e) => {
+  const team = L(CFG.teams[e.team].name);
+  if (e.type === 'found') return `🔎 ${t('feedFound', { team, tool: L(CFG.tools[e.tool]) })}`;
+  if (e.type === 'lost') return `☠️ ${t('feedLost', { team, tool: L(CFG.tools[e.tool]) })}`;
+  if (e.type === 'summon') return `💀 ${t('feedSummon', { team, monster: L(CFG.monsters[e.monster]) })}`;
+  if (e.type === 'defeated') return `⚔️ ${t('feedDefeated', { team, monster: L(CFG.monsters[e.monster]) })}`;
+  return `🏆 ${t('feedDone', { team })}`;
+};
+
+(async () => {
+  CFG = await (await fetch('/api/config')).json();
+  const share = await (await fetch('/api/share')).json();
+  if (share[0]) { $('qr').innerHTML = share[0].svg; zoomable($('qr'), share[0].join); } else $('qr').style.display = 'none';
+  const socket = io({ auth: { role: 'screen' } });
+  socket.on('board', (b) => { B = b; offset = b.now - Date.now(); render(); });
+  socket.on('feed', (e) => {
+    const d = document.createElement('div'); d.textContent = feedMsg(e); d.style.borderInlineStart = `6px solid ${CFG.teams[e.team].color}`;
+    $('ticker').prepend(d); while ($('ticker').children.length > 5) $('ticker').lastChild.remove();
+    if (e.type === 'found') Sfx.found(); else if (e.type === 'summon') Sfx.attack(); else if (e.type === 'lost') Sfx.lose(); else if (e.type === 'defeated') Sfx.defeat(); else Sfx.win();
+  });
+  setInterval(() => { $('clock').textContent = B && B.startedAt ? fmtTime(Date.now() + offset - B.startedAt) : '00:00'; }, 500);
+})();
+</script>
+</body>
+</html>

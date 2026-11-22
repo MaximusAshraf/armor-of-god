@@ -1,0 +1,65 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Whole Weapon of God - QR demo</title>
+<link rel="stylesheet" href="/style.css">
+<style>
+  html, body { height: 100%; overflow: hidden; user-select: none; }
+  #field { position: fixed; inset: 0; }
+  .tile { position: absolute; background: #fff; border-radius: 10px; padding: 0; color: #111; text-align: center; box-shadow: 0 6px 20px #0008; transition: left 1.2s ease, top 1.2s ease, transform 1.2s ease; display: flex; flex-direction: column; }
+  .tile .q { flex: 1; min-height: 0; } .tile .q svg { width: 100%; height: 100%; display: block; }
+  .tile .nm { font-size: 11px; font-weight: 800; padding: 2px; display: none; background: #eee; border-radius: 0 0 10px 10px; } body.names .tile .nm { display: block; }
+  .tools { position: fixed; z-index: 10; top: 8px; inset-inline-start: 8px; display: flex; gap: 8px; align-items: center; background: #000a; padding: 6px 10px; border-radius: 12px; font-size: .9rem; }
+  .tools label { display: flex; gap: 6px; align-items: center; cursor: pointer; }
+  .tools.hide { opacity: .15; } .tools:hover { opacity: 1; }
+</style>
+</head>
+<body>
+<div class="tools" id="tools"><button class="btn ghost" id="sh"></button><label><input type="checkbox" id="nm" style="width:auto"> <span id="nml"></span></label><label><input type="checkbox" id="auto" checked style="width:auto"> <span id="autol"></span></label></div>
+<div id="field"></div>
+<script src="/monsters/rig.js"></script>
+<script src="/common.js"></script>
+<script src="/mwarp.js"></script>
+<script>
+const $ = (id) => document.getElementById(id);
+$('sh').textContent = '🎲 ' + t('shuffle'); $('nml').textContent = t('showNames'); $('autol').textContent = t('autoShuffle');
+let items = [], timer = null;
+
+function place() {
+  const W = innerWidth, H = innerHeight, n = items.length;
+  // pick the grid that gives the biggest tiles, then scatter the tiles over its cells in random order with a little jitter
+  let best = null;
+  for (let cols = 1; cols <= n; cols++) {
+    const rows = Math.ceil(n / cols), s = Math.min(W / cols, H / rows);
+    if (!best || s > best.s) best = { cols, rows, s };
+  }
+  const { cols, rows } = best, cw = W / cols, ch = H / rows, size = Math.min(cw, ch) * 0.78;
+  const cells = [...Array(cols * rows).keys()].sort(() => Math.random() - 0.5).slice(0, n);
+  items.forEach((it, i) => {
+    const c = cells[i], cx = (c % cols) * cw, cy = Math.floor(c / cols) * ch;
+    const x = cx + (cw - size) / 2 + (Math.random() - 0.5) * (cw - size) * 0.8;
+    const y = cy + (ch - size) / 2 + (Math.random() - 0.5) * (ch - size) * 0.8;
+    const el = it.el; el.style.width = size + 'px'; el.style.height = size + 'px';
+    el.style.left = x + 'px'; el.style.top = y + 'px'; el.style.transform = `rotate(${(Math.random() - 0.5) * 12}deg)`;
+  });
+}
+const setAuto = () => { clearInterval(timer); if ($('auto').checked) timer = setInterval(place, 15000); };
+$('sh').onclick = place; $('auto').onchange = setAuto;
+$('nm').onchange = () => document.body.classList.toggle('names', $('nm').checked);
+addEventListener('resize', place);
+
+(async () => {
+  const d = await (await fetch('/api/admin/qrs')).json();
+  const all = [...d.toolCards.map((c) => ({ c, def: d.tools[c.idx] })), ...d.monsterCards.map((c) => ({ c, def: d.monsters[c.idx] })), ...d.trapCards.map((c) => ({ c, def: d.traps[c.idx] }))];
+  items = all.map(({ c, def }) => {
+    const el = document.createElement('div'); el.className = 'tile';
+    el.innerHTML = `<div class="q">${c.svg}</div><div class="nm">${esc(L(def))}</div>`;
+    $('field').appendChild(el); return { el };
+  });
+  place(); setAuto();
+})();
+</script>
+</body>
+</html>

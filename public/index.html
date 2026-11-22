@@ -1,0 +1,55 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Whole Weapon of God</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<div class="wrap center">
+  <div style="width:150px;margin:18px auto 0" id="logo"></div>
+  <h1 id="h"></h1>
+  <p class="sub" id="sub"></p>
+  <div class="card">
+    <input id="name" maxlength="20" autocomplete="off">
+    <p id="err" class="sm" style="color:#ff8b8b;min-height:20px;margin:8px 0"></p>
+    <button class="btn" id="go" style="width:100%"></button>
+    <p id="again" class="sm" style="margin-top:14px"></p>
+  </div>
+  <button class="btn ghost" onclick="toggleLang()" style="margin-top:20px">العربية / English</button>
+</div>
+<script src="/common.js"></script>
+<script>
+const $ = (id) => document.getElementById(id);
+const store = { get: (k) => { try { return localStorage.getItem(k); } catch { return null; } }, set: (k, v) => { try { localStorage.setItem(k, v); } catch {} } };
+$('logo').innerHTML = Art.tool(3, 'float-anim');
+$('h').textContent = t('title'); $('sub').textContent = t('sub');
+$('name').placeholder = t('yourName'); $('go').textContent = t('join');
+$('name').value = store.get('aog_name') || '';
+const next = new URLSearchParams(location.search).get('next');
+const dest = next && next.startsWith('/') ? next : '/play';
+
+async function join() {
+  Sfx.init();
+  const name = $('name').value.trim();
+  if (!name) { $('err').textContent = t('joinErr'); return; }
+  const r = await fetch('/api/join', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, pid: store.get('aog_pid') }) });
+  if (!r.ok) { $('err').textContent = t('joinErr'); return; }
+  const p = await r.json();
+  store.set('aog_pid', p.pid); store.set('aog_name', p.name);
+  location.href = dest;
+}
+$('go').onclick = join;
+$('name').addEventListener('keydown', (e) => { if (e.key === 'Enter') join(); });
+// already joined on this phone? offer to continue
+(async () => {
+  const pid = store.get('aog_pid'), name = store.get('aog_name');
+  if (!pid || !name) return;
+  const r = await fetch('/api/join', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: '', pid }) });
+  if (!r.ok) return;
+  $('again').innerHTML = `<a href="${esc(dest)}" style="color:var(--gold);font-weight:800">${t('continueAs')} ${esc(name)} ›</a>`;
+})();
+</script>
+</body>
+</html>

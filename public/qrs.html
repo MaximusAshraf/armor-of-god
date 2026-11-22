@@ -1,0 +1,57 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Whole Weapon of God - QR pages</title>
+<link rel="stylesheet" href="/style.css">
+<style>
+  body { user-select: auto; }
+  .bar2 { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; justify-content: center; padding: 12px; }
+  h2 { text-align: center; margin: 22px 0 10px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 14px; max-width: 1100px; margin: 0 auto; padding: 0 12px; }
+
+  /* one QR = one A4 page (preview on screen is the same layout, scaled down) */
+  .page { background: #fff; color: #000; aspect-ratio: 210 / 297; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 4%; border-radius: 6px; break-inside: avoid; }
+  .page .qr { width: 100%; }
+  .page .qr svg { width: 100%; height: auto; display: block; }
+  .page .cap { margin-top: 3%; text-align: center; line-height: 1.25; width: 100%; container-type: inline-size; }
+  /* the code is sized so the 6 characters span the full width of the page (--em = text width in em, measured in JS) */
+  .page .code { font: 800 calc(98cqw / var(--em, 3.6)) / 1.05 Menlo, Consolas, 'Courier New', monospace; white-space: nowrap; direction: ltr; text-align: center; }
+  .page .nm { font-weight: 700; font-size: .85em; display: flex; align-items: center; justify-content: center; gap: 6px; margin-top: 2px; }
+  .page .ico { width: 1.8em; height: 1.8em; flex: none; } .page .ico svg { width: 100%; height: 100%; }
+  .page .kind { font-size: .7em; opacity: .6; }
+
+  @page { size: A4 portrait; margin: 3mm; }
+  @media print {
+    body { background: #fff !important; color: #000; } body::before, .bar2, h2 { display: none !important; }
+    .grid { display: block; max-width: none; padding: 0; }
+    .page { width: 204mm; height: 289.5mm; overflow: hidden; aspect-ratio: auto; padding: 0; border-radius: 0; page-break-after: always; break-after: page; }
+    .page .qr { width: 204mm; }           /* the QR fills the whole page width: readable from a distance */
+    .page .cap { margin-top: 8mm; }
+    #sheets .grid:last-child .page:last-child { page-break-after: auto; break-after: auto; } /* no blank page at the end */
+      .page .nm { font-size: 14pt; } .page .kind { font-size: 9pt; } .page .ico { width: 10mm; height: 10mm; }
+  }
+</style>
+</head>
+<body>
+<div class="bar2"><span id="tip"></span> <button class="btn" id="pr"></button></div>
+<div id="sheets"></div>
+<script src="/monsters/rig.js"></script>
+<script src="/common.js"></script>
+<script src="/mwarp.js"></script>
+<script>
+const $ = (id) => document.getElementById(id);
+$('tip').textContent = t('hideTip') + ' — A4 / 1 QR'; $('pr').textContent = '🖨 ' + t('print'); $('pr').onclick = () => print();
+const emOf = (code) => { const x = document.createElement('canvas').getContext('2d'); x.font = "800 100px Menlo, Consolas, 'Courier New', monospace"; return (x.measureText(code).width / 100).toFixed(3); };
+(async () => {
+  const d = await (await fetch('/api/admin/qrs')).json();
+  const group = (title, cards, defs, kind, art) => `<h2>${title}</h2><div class="grid">${cards.map((c) => {
+    const it = defs[c.idx];
+    return `<div class="page"><div class="qr">${c.svgFull}</div><div class="cap"><div class="code" style="--em:${emOf(c.code)}">${c.code}</div><div class="nm"><span class="ico">${art(c.idx)}</span><span>${esc(it.ar)} · ${esc(it.en)}</span></div>${kind ? `<div class="kind">${kind} ${c.idx + 1}/6</div>` : ''}</div></div>`;
+  }).join('')}</div>`;
+  $('sheets').innerHTML = group('🛡️ الأدوات / Tools', d.toolCards, d.tools, 'Tool', (i) => Art.tool(i)) + group('💀 الوحوش / Monsters', d.monsterCards, d.monsters, 'Monster', (i) => Art.monster(i)) + group('⚠️ الفخاخ / Traps', d.trapCards, d.traps, '', (i) => Art.trap(i));
+})();
+</script>
+</body>
+</html>
