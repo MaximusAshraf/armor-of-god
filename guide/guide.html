@@ -46,6 +46,13 @@
 <body>
 <div class="g" id="root"></div>
 <script src="qr.js"></script>
+<script src="../public/monsters/rig.js"></script>
+<script>
+// the real game uses the animated monster pictures (public/monsters); point them at ../public so this page works from file://
+(() => { const fix = (u) => (typeof u === 'string' ? u.replace(/^\/monsters\//, '../public/monsters/') : u);
+  Object.values(window.MONSTER_RIG || {}).forEach((r) => { const R = Array.isArray(r) ? { layers: r } : r; R.layers.forEach((l) => { l.src = fix(l.src); }); if (R.warp) R.warp = fix(R.warp); });
+  window.MWARP = { ok: false }; })(); // no WebGL needed: monsters with a warp show their still picture
+</script>
 <script src="../public/common.js"></script>
 <script>
 const Q = new URLSearchParams(location.search), DOC = Q.get('doc') || 'player';
