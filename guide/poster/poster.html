@@ -1,0 +1,58 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Poster</title>
+<style>
+  :root { --gold: #f5c542; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: #040927; }
+  body { font-family: system-ui, -apple-system, 'Segoe UI', Tahoma, 'Noto Sans Arabic', sans-serif; color: #fff; }
+  .p { position: relative; overflow: hidden; background: radial-gradient(120% 80% at 50% 0%, #1d1146, #040927 70%); }
+  .stars { position: absolute; inset: 0; opacity: .8; background-image: radial-gradient(3px 3px at 12% 18%, #fff, transparent), radial-gradient(2px 2px at 30% 8%, #fff, transparent), radial-gradient(3px 3px at 52% 22%, #ffe8a0, transparent), radial-gradient(2px 2px at 71% 12%, #fff, transparent), radial-gradient(3px 3px at 88% 24%, #fff, transparent), radial-gradient(2px 2px at 20% 30%, #fff, transparent), radial-gradient(2px 2px at 92% 8%, #ffe8a0, transparent); }
+  h1 { margin: 0; font-weight: 900; color: var(--gold); -webkit-text-stroke: 0; text-shadow: 0 6px 0 #6b4a00, 0 0 40px #f5c54288, 0 0 90px #f5c54255; line-height: 1.05; text-align: center; }
+  .sub { text-align: center; font-weight: 700; color: #e8e4ff; }
+  .art { display: block; width: 100%; -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 9%, #000 92%, transparent 100%); mask-image: linear-gradient(to bottom, transparent 0, #000 9%, #000 92%, transparent 100%); }
+  .qr { background: #fff; border-radius: 22px; padding: 14px; flex: none; } .qr svg { width: 100%; height: 100%; display: block; }
+  .cta { font-weight: 900; color: var(--gold); } .steps div { background: #ffffff14; border-radius: 18px; display: flex; align-items: center; gap: 18px; } .steps b { flex: none; display: grid; place-items: center; border-radius: 50%; background: #2563eb; }
+  .verse { text-align: center; color: #d9d4ff; line-height: 1.7; } .verse b { color: var(--gold); }
+  .tall { width: 1536px; } .tall .head { padding: 70px 60px 0; } .tall h1 { font-size: 190px; } .tall .sub { font-size: 62px; margin-top: 24px; }
+  .tall .foot { display: flex; gap: 50px; align-items: center; padding: 20px 80px 40px; margin-top: -170px; position: relative; } .tall .qr { width: 470px; height: 470px; }
+  .tall .right { flex: 1; } .tall .cta { font-size: 76px; margin-bottom: 20px; } .tall .steps div { padding: 18px 28px; font-size: 44px; margin-bottom: 16px; } .tall .steps b { width: 66px; height: 66px; font-size: 40px; }
+  .tall .info { font-size: 44px; color: var(--gold); font-weight: 800; margin-top: 8px; } .tall .verse { font-size: 40px; padding: 10px 80px 70px; }
+  .square { width: 1080px; } .square .head { padding: 34px 40px 0; } .square h1 { font-size: 120px; } .square .sub { font-size: 38px; margin-top: 10px; }
+  .square .foot { display: flex; gap: 30px; align-items: center; padding: 6px 60px 36px; } .square .qr { width: 210px; height: 210px; padding: 9px; border-radius: 14px; }
+  .square .right { flex: 1; } .square .cta { font-size: 54px; margin-bottom: 6px; } .square .line { font-size: 30px; color: #e8e4ff; font-weight: 700; line-height: 1.5; } .square .info { font-size: 32px; color: var(--gold); font-weight: 800; }
+</style>
+</head>
+<body>
+<div class="p" id="root"></div>
+<script src="qr.js"></script>
+<script>
+const Q = new URLSearchParams(location.search), FORMAT = Q.get('f') || 'tall', AR = (Q.get('lang') || 'ar') === 'ar';
+document.documentElement.dir = AR ? 'rtl' : 'ltr';
+const T = (a, e) => (AR ? a : e);
+const place = Q.get('place') || '', time = Q.get('time') || '';
+const info = [place, time].filter(Boolean).join(' · ');
+const title = T('سلاح الله الكامل', 'The Whole Weapon of God');
+const sub = T('٦ أدوات ✦ ٦ وحوش ✦ فريق واحد', '6 tools ✦ 6 monsters ✦ one team');
+const art = `art/${FORMAT === 'tall' ? 'tall' : 'square'}.jpg`;
+const verse = T('«الْبَسُوا سِلاَحَ اللهِ الْكَامِلَ لِكَيْ تَقْدِرُوا أَنْ تَثْبُتُوا ضِدَّ مَكَايِدِ إِبْلِيسَ» <b>أفسس ٦: ١١</b>', '“Put on the whole armor of God, that you may be able to stand against the schemes of the devil.” <b>Ephesians 6:11</b>');
+const cta = T('امسح للانضمام', 'Scan to join');
+document.getElementById('root').className = 'p ' + FORMAT;
+if (FORMAT === 'tall') {
+  document.getElementById('root').innerHTML = `<div class="stars"></div><div class="head"><h1>${title}</h1><div class="sub">${sub}</div></div>
+    <img class="art" src="${art}" style="margin-top:-30px">
+    <div class="foot"><div class="qr">${window.QR_SVG}</div><div class="right"><div class="cta">${cta} 📱</div><div class="steps">
+      <div><b>1</b>${T('اتصل بالواي فاي', 'Connect to the Wi-Fi')}</div><div><b>2</b>${T('امسح الكود واقبل تحذير الشهادة مرة واحدة', 'Scan the code (accept the certificate warning once)')}</div><div><b>3</b>${T('اكتب اسمك وابدأ المعركة', 'Type your name and start the battle')}</div></div>
+      ${info ? `<div class="info">📍 ${info}</div>` : ''}</div></div>
+    <div class="verse">${verse}</div>`;
+} else {
+  document.getElementById('root').innerHTML = `<div class="stars"></div><div class="head"><h1>${title}</h1></div>
+    <img class="art" src="${art}" style="margin-top:-18px">
+    <div class="foot"><div class="qr">${window.QR_SVG}</div><div class="right"><div class="cta">${cta} 📱</div><div class="line">${sub}</div>${info ? `<div class="info">📍 ${info}</div>` : ''}</div></div>`;
+}
+addEventListener('load', () => setTimeout(() => { document.body.dataset.h = Math.ceil(document.getElementById('root').getBoundingClientRect().height); }, 500));
+</script>
+</body>
+</html>
